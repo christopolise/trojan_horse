@@ -2,11 +2,19 @@
 #include <esp_wifi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-
+#include <HTTPClient.h>
+#include "SPIFFS.h"
 // Define your network credentials
-String ssid, passwd;      // Replace with your network SSID
+String ssid, passwd, addrPktList;      // Replace with your network SSID
 bool loggedIn;
 AsyncWebServer * server;
+
+unsigned long previousMillis = 0;
+const long interval = 10000;  // interval to wait for Wi-Fi connection
+
+const char* ssidPath = "/ssid.txt";
+const char* passPath = "/pass.txt";
+const char* addrListPath = "/addrList.txt";
 
 // Structure for capturing Wi-Fi packets
 typedef struct {
@@ -19,6 +27,9 @@ typedef struct {
   uint8_t addr4[6];
 } wifi_ieee80211_mac_hdr_t;
 
+wifi_ieee80211_mac_hdr_t pktList[20];
+static int pktListIndex = 0;
+
 typedef struct {
   wifi_ieee80211_mac_hdr_t hdr;
   uint8_t payload[];
@@ -28,34 +39,183 @@ void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type);
 void handlePost(AsyncWebServerRequest * request);
 void handleLogin(AsyncWebServerRequest * request);
 void switchNetworks();
+void sendPOSTRequest(String pkt);
+
+// Initialize SPIFFS
+void initSPIFFS() {
+  if (!SPIFFS.begin(true)) {
+    Serial.println("An error has occurred while mounting SPIFFS");
+  }
+  Serial.println("SPIFFS mounted successfully");
+}
+
+// Read File from SPIFFS
+String readFile(fs::FS &fs, const char * path){
+  Serial.printf("Reading file: %s\r\n", path);
+
+  File file = fs.open(path);
+  if(!file || file.isDirectory()){
+    Serial.println("- failed to open file for reading");
+    return String();
+  }
+  
+  String fileContent;
+  while(file.available()){
+    fileContent = file.readStringUntil('\n');
+    break;     
+  }
+  return fileContent;
+}
+
+// Write file to SPIFFS
+void writeFile(fs::FS &fs, const char * path, const char * message){
+  Serial.printf("Writing file: %s\r\n", path);
+
+  File file = fs.open(path, FILE_WRITE);
+  if(!file){
+    Serial.println("- failed to open file for writing");
+    return;
+  }
+  if(file.print(message)){
+    Serial.println("- file written");
+  } else {
+    Serial.println("- write failed");
+  }
+}
+
+// Initialize WiFi
+bool initWiFi() {
+  if(ssid==""){
+    Serial.println("Undefined SSID.");
+    return false;
+  }
+
+  IPAddress subnet = IPAddress(255, 255, 255, 0);
+
+  WiFi.mode(WIFI_STA);
+  IPAddress localIP = IPAddress(10, 32, 123, 74);
+//  localIP.fromString(ip.c_str());
+  IPAddress localGateway = IPAddress(10, 32, 123, 1);
+//  localGateway.fromString(gateway.c_str());
+
+
+  if (!WiFi.config(localIP, localGateway, subnet)){
+    Serial.println("STA Failed to configure");
+    return false;
+  }
+  WiFi.begin(ssid.c_str(), passwd.c_str());
+  Serial.println("Connecting to WiFi...");
+
+  unsigned long currentMillis = millis();
+  previousMillis = currentMillis;
+
+  while(WiFi.status() != WL_CONNECTED) {
+    currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+      Serial.println("Failed to connect.");
+      return false;
+    }
+  }
+
+  Serial.println(WiFi.localIP());
+  return true;
+}
 
 void setup() {
-  loggedIn = false;
-  server = new AsyncWebServer(80);
+  //loggedIn = false;
+  initSPIFFS();
   Serial.begin(115200);
   delay(10);
 
-  // Set up routes
-  server->on("/post", HTTP_POST, &handlePost);
-  server->on("/", HTTP_GET, &handleLogin);
+  // Load values saved in SPIFFS
+  ssid = readFile(SPIFFS, ssidPath);
+  passwd = readFile(SPIFFS, passPath);
+  Serial.println(ssid);
+  Serial.println(passwd);
 
-  // Set up Wi-Fi as both AP and STA
-  WiFi.mode(WIFI_AP_STA);
+  // If pkt file exists
+  if (SPIFFS.exists(addrListPath)) {
+    addrPktList = readFile(SPIFFS, addrListPath);
+    Serial.println(addrPktList);
 
-  // Set up the AP
-  WiFi.softAP("IoT_Device");
+    // Erase the file
+    SPIFFS.remove(addrListPath);
+  }
 
-  IPAddress address = WiFi.softAPIP();
+  if(initWiFi())
+  {
+    sendPOSTRequest(addrPktList);
+    // Do the packet sniffing junk
+    switchNetworks();
+  }
+  else
+  {
 
-  Serial.print("AP IP is: ");
-  Serial.println(address);
+    server = new AsyncWebServer(80);
+    // Set up routes
+    server->on("/post", HTTP_POST, &handlePost);
+    server->on("/", HTTP_GET, &handleLogin);
 
-  // Start the web server
-  server->begin();
+    // Set up Wi-Fi as both AP and STA
+    WiFi.mode(WIFI_AP_STA);
+
+    // Set up the AP
+    WiFi.softAP("IoT_Device");
+
+    IPAddress address = WiFi.softAPIP();
+
+    Serial.print("AP IP is: ");
+    Serial.println(address);
+
+    // Start the web server
+    server->begin();
+  }
 }
 
 void loop() {
-  if (loggedIn) switchNetworks();
+  // if (loggedIn) switchNetworks();
+  // sendPOSTRequest("00:00:00:00:00:00", "00:00:00:00:00:00", "00:00:00:00:00:00");
+}
+
+void sendPOSTRequest(String pkt) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    Serial.println("Connecting to server...");
+    // Ensure the URL includes the protocol and the IP address is correct
+    if (!http.begin("http://10.32.123.208:5000/add")) {
+      Serial.println("HTTP begin failed");
+      return;
+    }
+
+    http.addHeader("Content-Type", "application/json");
+
+    // String jsonPayload = "{\"addr1\":\"" + String(addr1) + "\", \"addr2\":\"" + String(addr2) + "\", \"addr3\":\"" + String(addr3) + "\"}";
+    // Serial.println("JSON Payload: " + jsonPayload);
+
+    int httpResponseCode = http.POST(pkt);
+
+    if (httpResponseCode > 0) {
+      String response = http.getString();
+      Serial.println("HTTP Response code: " + String(httpResponseCode));
+      Serial.println("Response: " + response);
+    } else {
+      String errorMsg = http.errorToString(httpResponseCode).c_str();
+      Serial.println("Error on HTTP request");
+      Serial.println("HTTP Response code: " + String(httpResponseCode));
+      Serial.println("Error: " + errorMsg);
+
+      // Additional error handling for connection refused
+      if (httpResponseCode == -1) {
+        Serial.println("Connection refused. Please check the server and network configuration.");
+      }
+    }
+
+    http.end(); // Free resources
+  } else {
+    Serial.println("WiFi Disconnected");
+    ESP.restart();
+  }
 }
 
 // Callback function to process captured packets
@@ -87,6 +247,81 @@ void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
       hdr->addr3[5]
       );
 
+  // Add the packet to the list
+  pktList[pktListIndex] = *hdr;
+  pktListIndex++;
+
+  if (pktListIndex == 20) {
+    // Write the list to a file
+    File file = SPIFFS.open(addrListPath, FILE_WRITE);
+    if (!file) {
+      Serial.println("Failed to open file for writing");
+      return;
+    }
+
+    String pktString;
+
+    // Write the packet list to the file in JSON format with zero padding
+    pktString = "[";
+    for (int i = 0; i < 20; i++) {
+      pktString += "{\"addr1\":\"";
+      pktString += String(pktList[i].addr1[0], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr1[1], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr1[2], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr1[3], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr1[4], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr1[5], HEX);
+      pktString += "\",\"addr2\":\"";
+      pktString += String(pktList[i].addr2[0], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr2[1], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr2[2], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr2[3], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr2[4], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr2[5], HEX);
+      pktString += "\",\"addr3\":\"";
+      pktString += String(pktList[i].addr3[0], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr3[1], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr3[2], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr3[3], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr3[4], HEX);
+      pktString += ":";
+      pktString += String(pktList[i].addr3[5], HEX);
+      pktString += "\"}";
+
+      if (i < 19) {
+        pktString += ",";
+      }
+    }
+
+    pktString += "]";
+
+    file.print(pktString);
+
+    Serial.printf("Packet list written to file: %s\n", pktString.c_str());
+
+    file.close();
+    ESP.restart();
+  }
+
+  // Disable promiscuous mode
+  // esp_wifi_set_promiscuous(false);
+  //initWiFi();
+  //sendPOSTRequest(addr1, addr2, addr3);
+//  switchNetworks();
 }
 
 void handlePost (AsyncWebServerRequest * request){
@@ -95,7 +330,10 @@ void handlePost (AsyncWebServerRequest * request){
   {
     ssid = request->getParam("ssid", true)->value();
     passwd = request->getParam("passwd", true)->value();
+    writeFile(SPIFFS, ssidPath, ssid.c_str());
+    writeFile(SPIFFS, passPath, passwd.c_str());
     msg = "Received SSID and Password. Connecting...";
+    ESP.restart();
   }
   else
   {
@@ -175,29 +413,46 @@ void handleLogin(AsyncWebServerRequest * request) {
 }
 
 void switchNetworks(){ 
-  server->end();
-  Serial.println("Server ended...");
-  free(server);
-  Serial.println("Server freed...");
+  
+  //if (server)
+  //{
+  //  server->end();
+  //  Serial.println("Server ended...");
+  //  delete server;
+  //  server = nullptr;
+  //  Serial.println("Server freed...");
+  //}
 
   // Disconnect from any existing Wi-Fi connection
-  esp_wifi_set_promiscuous(false);
-  Serial.println("Promiscuity disabled...");
-  // WiFi.disconnect(true);
-  // Serial.println("WiFi disconnected...");
-  delay(5000);
-  WiFi.mode(WIFI_STA);
-  Serial.println("WiFi mode changed to STA...");
-  WiFi.begin(ssid.c_str(), passwd.c_str());
-  Serial.println("WiFi restarted...");
+  // esp_wifi_set_promiscuous(false);
+  // Serial.println("Promiscuity disabled...");
 
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
+  // Disconnect from any existing Wi-Fi connection
+  //if (WiFi.status() == WL_CONNECTED || WiFi.status() == WL_DISCONNECTED) {
+  //  WiFi.disconnect(true);
+  //  Serial.println("WiFi disconnected...");
+  //} else {
+  //  Serial.println("WiFi was not connected...");
+  //}
 
-  Serial.println("Connected to new network!");
+  //delay(5000);
+  //Serial.println("Waiting to change to new AP");
+  // WiFi.mode(WIFI_STA);
+  //Serial.println("WiFi mode changed to STA...");
+  //WiFi.begin(ssid.c_str(), passwd.c_str());
+  //Serial.println("WiFi restarted...");
+
+  //while (WiFi.status() != WL_CONNECTED) {
+  //  delay(500);
+  //  Serial.print(".");
+  //}
+
+  //Serial.println("\nConnected to new network!");
+  
   esp_wifi_set_promiscuous(true);
+  esp_wifi_set_promiscuous_rx_cb(&sniffer_callback);
   Serial.println("Promiscuous mode enabled");
-  loggedIn = false;
+  
+  //loggedIn = false;
+
 }

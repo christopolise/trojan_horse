@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 Wi-Fi Sniffer Data</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #dddddd;
+            text-align: left;
+            padding: 8px;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h1>ESP32 Wi-Fi Sniffer Data</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Source MAC</th>
+                <th>Destination MAC</th>
+                <th>Frame Type</th>
+                <th>Signal Strength (dBm)</th>
+                <th>Payload</th>
+            </tr>
+        </thead>
+        <tbody id="snifferData">
+            <!-- Sniffer data will be inserted here -->
+        </tbody>
+    </table>
+
+    <script>
+        // Function to fetch and display sniffed data
+        function fetchSnifferData() {
+            fetch('/sniffer_data')
+                .then(response => response.json())
+                .then(data => {
+                    const snifferDataElement = document.getElementById('snifferData');
+                    snifferDataElement.innerHTML = ''; // Clear previous data
+
+                    data.forEach(entry => {
+                        const row = document.createElement('tr');
+                        row.innerHTML = `
+                            <td>${entry.time}</td>
+                            <td>${entry.source_mac}</td>
+                            <td>${entry.destination_mac}</td>
+                            <td>${entry.frame_type}</td>
+                            <td>${entry.signal_strength}</td>
+                            <td>${entry.payload}</td>
+                        `;
+                        snifferDataElement.appendChild(row);
+                    });
+                });
+        }
+
+        // Fetch data every 5 seconds
+        setInterval(fetchSnifferData, 5000);
+
+        // Initial fetch
+        fetchSnifferData();
+    </script>
+</body>
+</html>
+
