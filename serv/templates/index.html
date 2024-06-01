@@ -3,43 +3,77 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 Wi-Fi Sniffer Data</title>
+    <title>Trojan Horse Device Sniffer</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            color: #00FF00;
+        }
+        .container {
+            max-width: 85%;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #1e1e1e;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
+            animation: fadeIn 0.5s ease-out;
+        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        h1 {
+            font-size: 28px;
+            color: #00FF00;
+            margin-bottom: 20px;
+            text-align: center;
         }
         table {
             width: 100%;
             border-collapse: collapse;
+            margin-top: 20px;
         }
         th, td {
-            border: 1px solid #dddddd;
+            border: 1px solid #444;
+            padding: 12px;
             text-align: left;
-            padding: 8px;
         }
         th {
-            background-color: #f2f2f2;
+            background-color: #333;
+            color: #00FF00;
+        }
+        td {
+            color: #ccc;
+        }
+        .data-row {
+            background-color: #003300;
         }
     </style>
 </head>
 <body>
-    <h1>ESP32 Wi-Fi Sniffer Data</h1>
-    <table>
-        <thead>
-            <tr>
-                <th>Time</th>
-                <th>Source MAC</th>
-                <th>Destination MAC</th>
-                <th>Frame Type</th>
-                <th>Signal Strength (dBm)</th>
-                <th>Payload</th>
-            </tr>
-        </thead>
-        <tbody id="snifferData">
-            <!-- Sniffer data will be inserted here -->
-        </tbody>
-    </table>
+    <div class="container">
+        <h1>Trojan Horse Device Sniffer</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Source MAC</th>
+                    <th>Destination MAC</th>
+                    <th>BSSID</th>
+                    <th>Frame Type</th>
+                </tr>
+            </thead>
+            <tbody id="snifferData">
+                <!-- Sniffer data will be inserted here -->
+            </tbody>
+        </table>
+    </div>
 
     <script>
         // Function to fetch and display sniffed data
@@ -48,25 +82,33 @@
                 .then(response => response.json())
                 .then(data => {
                     const snifferDataElement = document.getElementById('snifferData');
-                    snifferDataElement.innerHTML = ''; // Clear previous data
 
+                    // Clear existing rows
+                    snifferDataElement.innerHTML = '';
+
+                    // Reverse the data array so that newer items stay at the top
                     data.forEach(entry => {
                         const row = document.createElement('tr');
+                        row.classList.add('new-row'); // Add class for animation
+
+                        // Check if the packet type is DATA and apply the class
+                        if (entry.type === 'DATA') {
+                            row.classList.add('data-row');
+                        }
+
                         row.innerHTML = `
-                            <td>${entry.time}</td>
-                            <td>${entry.source_mac}</td>
-                            <td>${entry.destination_mac}</td>
-                            <td>${entry.frame_type}</td>
-                            <td>${entry.signal_strength}</td>
-                            <td>${entry.payload}</td>
+                            <td>${entry.addr1}</td>
+                            <td>${entry.addr2}</td>
+                            <td>${entry.addr3}</td>
+                            <td>${entry.type}</td>
                         `;
-                        snifferDataElement.appendChild(row);
+                        // Insert the new row at the beginning of the table body
+                        snifferDataElement.insertBefore(row, snifferDataElement.firstChild);
                     });
                 });
         }
 
-        // Fetch data every 5 seconds
-        setInterval(fetchSnifferData, 5000);
+        setInterval(fetchSnifferData, 1000);
 
         // Initial fetch
         fetchSnifferData();

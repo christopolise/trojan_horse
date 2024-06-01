@@ -4,6 +4,10 @@
 #include <ESPAsyncWebServer.h>
 #include <HTTPClient.h>
 #include "SPIFFS.h"
+
+#define SERVER_LOC "http://192.168.86.55:5000/add"
+#define PKT_NUM 50
+
 // Define your network credentials
 String ssid, passwd, addrPktList;      // Replace with your network SSID
 bool loggedIn;
@@ -27,7 +31,12 @@ typedef struct {
   uint8_t addr4[6];
 } wifi_ieee80211_mac_hdr_t;
 
-wifi_ieee80211_mac_hdr_t pktList[20];
+typedef struct {
+  wifi_ieee80211_mac_hdr_t hdr;
+  wifi_promiscuous_pkt_type_t type;
+} sniff_pkt_t;
+
+sniff_pkt_t pktList[PKT_NUM];
 static int pktListIndex = 0;
 
 typedef struct {
@@ -40,6 +49,8 @@ void handlePost(AsyncWebServerRequest * request);
 void handleLogin(AsyncWebServerRequest * request);
 void switchNetworks();
 void sendPOSTRequest(String pkt);
+const char *wifi_sniffer_packet_type2str(wifi_promiscuous_pkt_type_t type);
+
 
 // Initialize SPIFFS
 void initSPIFFS() {
@@ -90,19 +101,19 @@ bool initWiFi() {
     return false;
   }
 
-  IPAddress subnet = IPAddress(255, 255, 255, 0);
+  //IPAddress subnet = IPAddress(255, 255, 255, 0);
 
   WiFi.mode(WIFI_STA);
-  IPAddress localIP = IPAddress(10, 32, 123, 74);
+ // IPAddress localIP = IPAddress(10, 32, 123, 74);
 //  localIP.fromString(ip.c_str());
-  IPAddress localGateway = IPAddress(10, 32, 123, 1);
+ // IPAddress localGateway = IPAddress(10, 32, 123, 1);
 //  localGateway.fromString(gateway.c_str());
 
 
-  if (!WiFi.config(localIP, localGateway, subnet)){
-    Serial.println("STA Failed to configure");
-    return false;
-  }
+  //if (!WiFi.config(localIP, localGateway, subnet)){
+  //  Serial.println("STA Failed to configure");
+  //  return false;
+  //}
   WiFi.begin(ssid.c_str(), passwd.c_str());
   Serial.println("Connecting to WiFi...");
 
@@ -177,13 +188,27 @@ void loop() {
   // sendPOSTRequest("00:00:00:00:00:00", "00:00:00:00:00:00", "00:00:00:00:00:00");
 }
 
+const char *wifi_sniffer_packet_type2str(wifi_promiscuous_pkt_type_t type)
+{
+    switch (type)
+    {
+    case WIFI_PKT_MGMT:
+        return "MGMT";
+    case WIFI_PKT_DATA:
+        return "DATA";
+    default:
+    case WIFI_PKT_MISC:
+        return "MISC";
+    }
+}
+
 void sendPOSTRequest(String pkt) {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
 
     Serial.println("Connecting to server...");
     // Ensure the URL includes the protocol and the IP address is correct
-    if (!http.begin("http://10.32.123.208:5000/add")) {
+    if (!http.begin(SERVER_LOC)) {
       Serial.println("HTTP begin failed");
       return;
     }
@@ -220,7 +245,7 @@ void sendPOSTRequest(String pkt) {
 
 // Callback function to process captured packets
 void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
-  if (type != WIFI_PKT_DATA) return;
+  //if (type != WIFI_PKT_DATA || type != WIFI_PKT_MISC) return;
 
   wifi_promiscuous_pkt_t *p = (wifi_promiscuous_pkt_t *)buf;
   wifi_ieee80211_packet_t *ipkt = (wifi_ieee80211_packet_t *)p->payload;
@@ -248,10 +273,11 @@ void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
       );
 
   // Add the packet to the list
-  pktList[pktListIndex] = *hdr;
+  pktList[pktListIndex].hdr = *hdr;
+  pktList[pktListIndex].type = type;
   pktListIndex++;
 
-  if (pktListIndex == 20) {
+  if (pktListIndex == PKT_NUM) {
     // Write the list to a file
     File file = SPIFFS.open(addrListPath, FILE_WRITE);
     if (!file) {
@@ -263,46 +289,48 @@ void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
 
     // Write the packet list to the file in JSON format with zero padding
     pktString = "[";
-    for (int i = 0; i < 20; i++) {
+    for (int i = 0; i < PKT_NUM; i++) {
       pktString += "{\"addr1\":\"";
-      pktString += String(pktList[i].addr1[0], HEX);
+      pktString += String(pktList[i].hdr.addr1[0], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr1[1], HEX);
+      pktString += String(pktList[i].hdr.addr1[1], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr1[2], HEX);
+      pktString += String(pktList[i].hdr.addr1[2], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr1[3], HEX);
+      pktString += String(pktList[i].hdr.addr1[3], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr1[4], HEX);
+      pktString += String(pktList[i].hdr.addr1[4], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr1[5], HEX);
+      pktString += String(pktList[i].hdr.addr1[5], HEX);
       pktString += "\",\"addr2\":\"";
-      pktString += String(pktList[i].addr2[0], HEX);
+      pktString += String(pktList[i].hdr.addr2[0], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr2[1], HEX);
+      pktString += String(pktList[i].hdr.addr2[1], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr2[2], HEX);
+      pktString += String(pktList[i].hdr.addr2[2], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr2[3], HEX);
+      pktString += String(pktList[i].hdr.addr2[3], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr2[4], HEX);
+      pktString += String(pktList[i].hdr.addr2[4], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr2[5], HEX);
+      pktString += String(pktList[i].hdr.addr2[5], HEX);
       pktString += "\",\"addr3\":\"";
-      pktString += String(pktList[i].addr3[0], HEX);
+      pktString += String(pktList[i].hdr.addr3[0], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr3[1], HEX);
+      pktString += String(pktList[i].hdr.addr3[1], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr3[2], HEX);
+      pktString += String(pktList[i].hdr.addr3[2], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr3[3], HEX);
+      pktString += String(pktList[i].hdr.addr3[3], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr3[4], HEX);
+      pktString += String(pktList[i].hdr.addr3[4], HEX);
       pktString += ":";
-      pktString += String(pktList[i].addr3[5], HEX);
+      pktString += String(pktList[i].hdr.addr3[5], HEX);
+      pktString += "\",\"type\":\"";
+      pktString += String(wifi_sniffer_packet_type2str(pktList[i].type));
       pktString += "\"}";
 
-      if (i < 19) {
+      if (i < (PKT_NUM - 1)) {
         pktString += ",";
       }
     }
