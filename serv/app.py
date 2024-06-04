@@ -13,23 +13,28 @@ CORS(app)
 packets = []
 
 class Packet:
-    def __init__(self, addr1, addr2, addr3, pkt_t):
+    def __init__(self, addr1, addr2, payload, pkt_t):
         self.addr1 = addr1
         self.addr2 = addr2
-        self.addr3 = addr3
+        self.payload = payload
         self.pkt_t = pkt_t
+
+        self.payload = self.payload.split()
+        self.payload = [int(byte, 16) for byte in self.payload]
+        self.payload = [chr(byte) if byte >= 32 and byte <= 126 else '.' for byte in self.payload]
+        self.payload = ''.join(self.payload)
 
     def to_dict(self):
         return {
             'addr1': (self.addr1, pars.get_manuf(self.addr1)),
             'addr2': (self.addr2, pars.get_manuf(self.addr2)),
-            'addr3': (self.addr3, pars.get_manuf(self.addr3)),
+            'payload': self.payload,
             'type': self.pkt_t,
         }
 
     @staticmethod
     def from_dict(data):
-        return Packet(data['addr1'], data['addr2'], data['addr3'], data['type'])
+        return Packet(data['addr1'], data['addr2'], data['payload'], data['type'])
 
 app = Flask(__name__)
 CORS(app)
@@ -47,10 +52,12 @@ def add():
 
         addr1 = formatted_mac_address = ':'.join([octet.zfill(2) for octet in pkt['addr1'].split(':')])
         addr2 = formatted_mac_address = ':'.join([octet.zfill(2) for octet in pkt['addr2'].split(':')])
-        addr3 = formatted_mac_address = ':'.join([octet.zfill(2) for octet in pkt['addr3'].split(':')])
+        payload = formatted_mac_address = pkt['payload']
         pkt_t = pkt['type']
 
-        packet = Packet(addr1, addr2, addr3, pkt_t)
+        print(payload)
+
+        packet = Packet(addr1, addr2, payload, pkt_t)
         packets.append(packet)
 
     return jsonify({"message": "Packet added successfully"})
@@ -69,4 +76,4 @@ def index():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(host='192.168.0.196', port=5000)

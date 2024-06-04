@@ -5,7 +5,7 @@
 #include <HTTPClient.h>
 #include "SPIFFS.h"
 
-#define SERVER_LOC "http://192.168.86.55:5000/add"
+#define SERVER_LOC "http://192.168.0.196:5000/add"
 #define PKT_NUM 50
 
 // Define your network credentials
@@ -34,6 +34,7 @@ typedef struct {
 typedef struct {
   wifi_ieee80211_mac_hdr_t hdr;
   wifi_promiscuous_pkt_type_t type;
+  uint8_t * payload;
 } sniff_pkt_t;
 
 sniff_pkt_t pktList[PKT_NUM];
@@ -275,6 +276,7 @@ void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
   // Add the packet to the list
   pktList[pktListIndex].hdr = *hdr;
   pktList[pktListIndex].type = type;
+  pktList[pktListIndex].payload = ipkt->payload;
   pktListIndex++;
 
   if (pktListIndex == PKT_NUM) {
@@ -314,18 +316,11 @@ void sniffer_callback(void* buf, wifi_promiscuous_pkt_type_t type) {
       pktString += String(pktList[i].hdr.addr2[4], HEX);
       pktString += ":";
       pktString += String(pktList[i].hdr.addr2[5], HEX);
-      pktString += "\",\"addr3\":\"";
-      pktString += String(pktList[i].hdr.addr3[0], HEX);
-      pktString += ":";
-      pktString += String(pktList[i].hdr.addr3[1], HEX);
-      pktString += ":";
-      pktString += String(pktList[i].hdr.addr3[2], HEX);
-      pktString += ":";
-      pktString += String(pktList[i].hdr.addr3[3], HEX);
-      pktString += ":";
-      pktString += String(pktList[i].hdr.addr3[4], HEX);
-      pktString += ":";
-      pktString += String(pktList[i].hdr.addr3[5], HEX);
+      pktString += "\",\"payload\":\"";
+      for (int j = 0; j < 46; j++) {
+        pktString += String(pktList[i].payload[j], HEX);
+        pktString += " ";
+      }
       pktString += "\",\"type\":\"";
       pktString += String(wifi_sniffer_packet_type2str(pktList[i].type));
       pktString += "\"}";

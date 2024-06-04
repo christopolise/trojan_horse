@@ -9,14 +9,14 @@
             font-family: 'Courier New', Courier, monospace;
             margin: 0;
             padding: 0;
-            background-color: #121212;
-            color: #00FF00;
+            background-color: #fcfcfc;
+            color: #1a1a1a;
         }
         .container {
             max-width: 85%;
             margin: 20px auto;
             padding: 20px;
-            background-color: #1e1e1e;
+            background-color: #e8e8e8;
             border-radius: 10px;
             box-shadow: 0 0 10px rgba(0, 0, 0, 0.5);
             animation: fadeIn 0.5s ease-out;
@@ -31,7 +31,7 @@
         }
         h1 {
             font-size: 28px;
-            color: #00FF00;
+            color: #333;
             margin-bottom: 20px;
             text-align: center;
         }
@@ -46,14 +46,18 @@
             text-align: left;
         }
         th {
-            background-color: #333;
-            color: #00FF00;
+            background-color: #c2c2c2;
+            color: #333;
         }
         td {
-            color: #ccc;
+            color: #333;
         }
         .data-row {
-            background-color: #003300;
+            background-color: #82c1ff;
+        }
+
+        .mgmt-row {
+            background-color: #edd1ff;
         }
     </style>
 </head>
@@ -65,7 +69,7 @@
                 <tr>
                     <th>Source MAC</th>
                     <th>Destination MAC</th>
-                    <th>BSSID</th>
+                    <th>Payload</th>
                     <th>Frame Type</th>
                 </tr>
             </thead>
@@ -94,12 +98,14 @@
                         // Check if the packet type is DATA and apply the class
                         if (entry.type === 'DATA') {
                             row.classList.add('data-row');
+                        } else if (entry.type === 'MGMT') {
+                            row.classList.add('mgmt-row');
                         }
 
                         row.innerHTML = `
-                            <td>${entry.addr1}</td>
-                            <td>${entry.addr2}</td>
-                            <td>${entry.addr3}</td>
+                            <td><b>${entry.addr1[1]}</b> <p style="font-size: 10px; color: #555">(${entry.addr1[0]})</p></td>
+                            <td><b>${entry.addr2[1]}</b> <p style="font-size: 10px; color: #555">(${entry.addr2[0]})</p></td>
+                            <td>${entry.payload}</td>
                             <td>${entry.type}</td>
                         `;
                         // Insert the new row at the beginning of the table body
